@@ -538,7 +538,7 @@ Bearer Token Service 是**七牛云统一的 Bearer Token 鉴权服务**,在七�
    - 禁用/启用Token
    - 删除Token
 
-![用户创建Token流程](https://raw.githubusercontent.com/whaili/sharefile/refs/heads/main/%E7%94%A8%E6%88%B7%E5%88%9B%E5%BB%BAtoken.png)
+![用户创建Token流程](pic/用户创建token2.png)
 
 ### 用户身份信息
 
