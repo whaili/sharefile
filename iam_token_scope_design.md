@@ -264,35 +264,6 @@ mikustream:*       # MikuStream 所有权限
 *                  # 全局权限（慎用）
 ```
 
-#### 验证流程
-
-```python
-def validate_request(token, action, resource):
-    # 第一层：验证 Bearer Token
-    token_info = bearer_service.validate(token)
-    if not token_info["valid"]:
-        return {"allowed": False, "reason": "Invalid token"}
-
-    # 提取子账号 UID 和 Token Scope
-    sub_account_uid = token_info["uid"]
-    token_scope = token_info["scope"]
-
-    # 第二层：检查 Token Scope（粗粒度）
-    if not check_scope_match(token_scope, action):
-        return {"allowed": False, "reason": "Token scope insufficient"}
-
-    # 第三层：检查 IAM 策略（细粒度）
-    iam_allowed = iam.evaluate_policy(
-        uid=sub_account_uid,
-        action=action,
-        resource=resource
-    )
-    if not iam_allowed:
-        return {"allowed": False, "reason": "IAM policy denied"}
-
-    return {"allowed": True}
-```
-
 #### 权限匹配逻辑
 
 | Token Scope | 请求 Action | IAM Policy 允许的 Resource | 最终结果 |
