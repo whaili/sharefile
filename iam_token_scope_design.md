@@ -1,6 +1,6 @@
 # Bearer Token Scope 与 IAM 联合权限控制方案
 
-## 一、双层权限控制：为什么需要 IAM + Bearer Token Scope
+## 一、双层权限控制
 
 ### 1.1 核心概念
 
