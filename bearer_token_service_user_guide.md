@@ -9,7 +9,6 @@
 - [API接口参考](#api接口参考)
 - [系统概述](#系统概述)
 - [Token创建与管理](#token创建与管理)
-- [权限控制](#权限控制)
 - [错误码参考](#错误码参考)
 
 ---
@@ -31,13 +30,6 @@ POST http://bearer.qiniu.io/api/v2/validate
 Authorization: Bearer sk-a1b2c3d4e5f6...
 ```
 
-**请求体**(可选):
-```json
-{
-  "required_scope": "storage:write"
-}
-```
-
 **响应(验证成功)**:
 ```json
 {
@@ -46,13 +38,8 @@ Authorization: Bearer sk-a1b2c3d4e5f6...
   "token_info": {
     "token_id": "tk_9z8y7x6w5v4u",
     "uid": "1234567",
-    "scope": ["storage:read", "storage:write"],
     "is_active": true,
     "expires_at": "2026-03-30T10:00:00Z"
-  },
-  "permission_check": {
-    "requested": "storage:write",
-    "granted": true
   }
 }
 ```
@@ -75,17 +62,13 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-def verify_token(bearer_token, required_scope=None):
+def verify_token(bearer_token):
     """验证 Bearer Token"""
     validate_url = "http://bearer.qiniu.io/api/v2/validate"
 
     headers = {"Authorization": f"Bearer {bearer_token}"}
-    payload = {}
 
-    if required_scope:
-        payload["required_scope"] = required_scope
-
-    response = requests.post(validate_url, headers=headers, json=payload)
+    response = requests.post(validate_url, headers=headers)
 
     if response.status_code == 200:
         result = response.json()
@@ -100,8 +83,8 @@ def upload_file():
     auth_header = request.headers.get("Authorization", "")
     token = auth_header.replace("Bearer ", "")
 
-    # 验证 Token 并检查权限
-    token_info = verify_token(token, "storage:write")
+    # 验证 Token
+    token_info = verify_token(token)
     if not token_info:
         return jsonify({"error": "Unauthorized"}), 401
 
@@ -131,7 +114,6 @@ import (
 type TokenInfo struct {
     TokenID   string   `json:"token_id"`
     UID       string   `json:"uid"`
-    Scope     []string `json:"scope"`
     IsActive  bool     `json:"is_active"`
     ExpiresAt string   `json:"expires_at"`
 }
@@ -142,17 +124,10 @@ type ValidateResponse struct {
     TokenInfo TokenInfo `json:"token_info"`
 }
 
-func verifyToken(bearerToken, requiredScope string) (*TokenInfo, error) {
+func verifyToken(bearerToken string) (*TokenInfo, error) {
     url := "http://bearer.qiniu.io/api/v2/validate"
 
-    payload := map[string]string{}
-    if requiredScope != "" {
-        payload["required_scope"] = requiredScope
-    }
-
-    bodyBytes, _ := json.Marshal(payload)
-
-    req, _ := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+    req, _ := http.NewRequest("POST", url, nil)
     req.Header.Set("Authorization", "Bearer "+bearerToken)
     req.Header.Set("Content-Type", "application/json")
 
@@ -183,8 +158,8 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
     bearerToken = bearerToken[7:] // 去掉 "Bearer " 前缀
 
-    // 验证 Token 并检查权限
-    tokenInfo, err := verifyToken(bearerToken, "storage:write")
+    // 验证 Token
+    tokenInfo, err := verifyToken(bearerToken)
     if err != nil || tokenInfo == nil {
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
@@ -213,17 +188,12 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-async function verifyToken(bearerToken, requiredScope = null) {
+async function verifyToken(bearerToken) {
     const url = 'http://bearer.qiniu.io/api/v2/validate';
     const headers = { 'Authorization': `Bearer ${bearerToken}` };
-    const payload = {};
-
-    if (requiredScope) {
-        payload.required_scope = requiredScope;
-    }
 
     try {
-        const response = await axios.post(url, payload, { headers });
+        const response = await axios.post(url, {}, { headers });
         if (response.data.valid) {
             return response.data.token_info;
         }
@@ -239,8 +209,8 @@ app.post('/api/upload', async (req, res) => {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.replace('Bearer ', '');
 
-    // 验证 Token 并检查权限
-    const tokenInfo = await verifyToken(token, 'storage:write');
+    // 验证 Token
+    const tokenInfo = await verifyToken(token);
     if (!tokenInfo) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -261,8 +231,7 @@ app.listen(3000);
 
 1. **在每个业务API请求中调用验证接口**
 2. **检查返回的 `valid` 字段判断Token是否有效**
-3. **可选:检查 `permission_check.granted` 验证权限**
-4. **使用返回的 `uid` 查询业务系统中的用户信息**
+3. **使用返回的 `uid` 查询业务系统中的用户信息**
 
 ---
 
@@ -270,12 +239,12 @@ app.listen(3000);
 
 ### ⚠️ 为什么必须记录
 
-**Bearer Token Service 不存储用户业务信息**（如用户名、邮箱、手机号等），仅管理 Token 的生命周期和权限。
+**Bearer Token Service 不存储用户业务信息**（如用户名、邮箱、手机号等），仅管理 Token 的生命周期。
 
 **因此业务系统必须在自己的数据库中记录用户信息与 Token 的映射关系！**
 
 **具体原因**：
-1. **Token验证接口只返回 `uid` 和权限**，不返回用户业务信息
+1. **Token验证接口只返回 `uid`**，不返回用户业务信息
 2. **便于后续按用户身份记录、统计、审计资源用量等**
 
 ### 建议的数据库表结构
@@ -299,7 +268,6 @@ CREATE TABLE user_tokens (
     token_id VARCHAR(255) NOT NULL,
     token_hash VARCHAR(255),               -- Token哈希(可选,建议存储)
     description VARCHAR(500),              -- Token用途描述
-    scope JSON,                            -- 权限范围
     created_at DATETIME DEFAULT NOW(),     -- 创建时间
     expires_at DATETIME,                   -- 过期时间
 
@@ -374,7 +342,6 @@ Authorization: QiniuStub uid=1369077332&ut=1
       "token_id": "tk_9z8y7x6w5v4u",
       "token_preview": "sk-a1b2c3d4e5f6g7******************************c9d0e1f2",
       "description": "Production API Token",
-      "scope": ["storage:read", "storage:write"],
       "created_at": "2025-12-30T10:00:00Z",
       "expires_at": "2026-03-30T10:00:00Z",
       "is_active": true,
@@ -412,7 +379,6 @@ Authorization: QiniuStub uid=1369077332&ut=1
   "token_preview": "sk-a1b2c3d4e5f6g7******************************c9d0e1f2",
   "account_id": "acc_1a2b3c4d5e6f",
   "description": "Production API Token",
-  "scope": ["storage:read", "storage:write"],
   "created_at": "2025-12-30T10:00:00Z",
   "expires_at": "2026-03-30T10:00:00Z",
   "is_active": true,
@@ -511,7 +477,6 @@ Bearer Token Service 是**七牛云统一的 Bearer Token 鉴权服务**,在七�
 
 **核心能力**:
 - **Bearer Token 管理**: 创建、管理、验证 API Token
-- **细粒度权限控制**: 基于 Scope 的权限系统
 - **安全性保障**: Token 过期管理、状态控制
 
 ### 适用场景
@@ -533,7 +498,7 @@ Bearer Token Service 是**七牛云统一的 Bearer Token 鉴权服务**,在七�
 1. 用户通过七牛官网注册登录
 2. 在密钥管理页面为各业务线创建和管理 Token
 3. 可以执行以下操作:
-   - 创建新的Token（指定权限scope、过期时间等）
+   - 创建新的Token（指定过期时间等）
    - 查看Token列表
    - 禁用/启用Token
    - 删除Token
@@ -563,309 +528,6 @@ Authorization: QiniuStub uid=1369077332&ut=1
 
 ---
 
-## 权限控制
-
-### 设计思路
-
-Bearer Token 使用 **Scope 权限系统**实现细粒度的访问控制。其核心设计思想是：
-
-- **资源-动作模型**: 使用 `<resource>:<action>` 格式明确描述权限范围
-- **最小权限原则**: Token 仅授予完成任务所需的最小权限集
-- **灵活的通配符**: 支持前缀通配和全局通配，平衡灵活性与安全性
-- **显式验证**: 业务系统在 API 调用时显式指定所需权限，服务端进行匹配验证
-
-### 使用方法
-
-1. **创建 Token 时指定 Scope**（由用户在管理网站完成）
-   - 根据业务需求选择合适的权限组合
-   - 使用通配符简化权限配置（如 `storage:*` 授予所有存储权限）
-
-2. **业务 API 验证时指定所需权限**（业务接入方实现）
-   - 在调用验证接口时传递 `required_scope` 参数
-   - 服务端返回权限检查结果 `permission_check.granted`
-
-### Scope 权限系统
-
-#### Scope 格式
-
-```
-<resource>:<action>
-```
-
-**格式说明**:
-- `resource`: 资源类型（如 `storage`、`cdn`、`mikustream`）
-- `action`: 操作动作（如 `read`、`write`、`refresh`）
-- 分隔符: 使用冒号 `:` 连接
-
-**示例**:
-- `storage:read` - 存储读权限
-- `storage:write` - 存储写权限
-- `cdn:refresh` - CDN 刷新权限
-- `analytics:view` - 分析查看权限
-
-#### 通配符支持
-
-**前缀通配符 `*`**:
-```json
-{
-  "scope": ["storage:*"]
-}
-```
-匹配所有以 `storage:` 开头的权限:
-- `storage:read` ✅
-- `storage:write` ✅
-- `storage:delete` ✅
-- `cdn:refresh` ❌（不同资源）
-
-**全局通配符 `*`**:
-```json
-{
-  "scope": ["*"]
-}
-```
-匹配所有权限（⚠️ 慎用）
-
-#### 权限验证逻辑
-
-验证时使用**"最宽松匹配"**原则，按以下顺序检查：
-
-1. **精确匹配**: Token 的 Scope 包含请求的权限
-   ```
-   Token Scope: ["storage:read", "storage:write"]
-   Required: "storage:read"
-   Result: ✅ Granted
-   ```
-
-2. **前缀通配匹配**: Token 的 Scope 包含通配符前缀
-   ```
-   Token Scope: ["storage:*"]
-   Required: "storage:read"
-   Result: ✅ Granted
-   ```
-
-3. **全局通配匹配**: Token 的 Scope 包含 `*`
-   ```
-   Token Scope: ["*"]
-   Required: "any:permission"
-   Result: ✅ Granted
-   ```
-
-4. **无匹配**: Token 没有对应权限
-   ```
-   Token Scope: ["storage:read"]
-   Required: "storage:write"
-   Result: ❌ Denied
-   ```
-
-### 最佳实践
-
-#### 1. 按需授权原则
-
-**✅ 推荐：精确授权**
-```json
-{
-  "description": "Mobile App Read Token",
-  "scope": ["storage:read", "analytics:view"]
-}
-```
-
-**❌ 不推荐：过度授权**
-```json
-{
-  "description": "Mobile App Token",
-  "scope": ["*"]
-}
-```
-
-#### 2. 按环境管理
-
-**开发环境：较宽松，短有效期**
-```json
-{
-  "description": "Development Token",
-  "scope": ["storage:*", "cdn:*"],
-  "expires_in_seconds": 86400  // 1天
-}
-```
-
-**生产环境：最小权限，长有效期**
-```json
-{
-  "description": "Production Read-Only Token",
-  "scope": ["storage:read"],
-  "expires_in_seconds": 7776000  // 90天
-}
-```
-
-#### 3. 按角色授权
-
-**管理员（全权限）**
-```json
-{
-  "description": "Admin Token",
-  "scope": ["*"]
-}
-```
-
-**开发者（多产品读写）**
-```json
-{
-  "description": "Developer Token",
-  "scope": ["storage:*", "cdn:refresh", "mikustream:write"]
-}
-```
-
-**只读用户（查看权限）**
-```json
-{
-  "description": "Read-Only Token",
-  "scope": ["storage:read", "analytics:view"]
-}
-```
-
-#### 4. 产品线权限规范参考
-
-以下是七牛云各产品线推荐的 Scope 命名规范：
-
-##### **Kodo（对象存储）**
-```json
-{
-  "product": "kodo",
-  "scope": [
-    "kodo:read",           // 读取对象
-    "kodo:write",          // 上传对象
-    "kodo:delete",         // 删除对象
-    "kodo:list",           // 列举对象
-    "kodo:bucket:create",  // 创建空间
-    "kodo:bucket:delete"   // 删除空间
-  ]
-}
-```
-
-**常用组合**:
-- 只读访问: `["kodo:read", "kodo:list"]`
-- 上传下载: `["kodo:read", "kodo:write"]`
-- 完全控制: `["kodo:*"]`
-
-##### **CDN（内容分发网络）**
-```json
-{
-  "product": "cdn",
-  "scope": [
-    "cdn:refresh",         // 刷新缓存
-    "cdn:prefetch",        // 预取文件
-    "cdn:domain:config",   // 配置域名
-    "cdn:log:view",        // 查看日志
-    "cdn:bandwidth:view"   // 查看带宽统计
-  ]
-}
-```
-
-**常用组合**:
-- 运维操作: `["cdn:refresh", "cdn:prefetch"]`
-- 查看统计: `["cdn:log:view", "cdn:bandwidth:view"]`
-- 完全控制: `["cdn:*"]`
-
-##### **MikuStream（实时流媒体）**
-```json
-{
-  "product": "mikustream",
-  "scope": [
-    "mikustream:stream:create",   // 创建流
-    "mikustream:stream:publish",  // 推流
-    "mikustream:stream:play",     // 拉流
-    "mikustream:stream:stop",     // 断流
-    "mikustream:record:list",     // 查看录制
-    "mikustream:snapshot:view"    // 查看截图
-  ]
-}
-```
-
-**常用组合**:
-- 推流端: `["mikustream:stream:publish"]`
-- 播放端: `["mikustream:stream:play"]`
-- 录制管理: `["mikustream:stream:*", "mikustream:record:*"]`
-
-##### **LAS（实时音视频）**
-```json
-{
-  "product": "las",
-  "scope": [
-    "las:room:create",      // 创建房间
-    "las:room:join",        // 加入房间
-    "las:room:leave",       // 离开房间
-    "las:stream:publish",   // 发布流
-    "las:stream:subscribe", // 订阅流
-    "las:record:start"      // 开始录制
-  ]
-}
-```
-
-**常用组合**:
-- 主播权限: `["las:room:create", "las:stream:publish"]`
-- 观众权限: `["las:room:join", "las:stream:subscribe"]`
-- 完全控制: `["las:*"]`
-
-##### **AI Inference（AI 推理服务）**
-```json
-{
-  "product": "ai-inference",
-  "scope": [
-    "ai-inference:model:list",       // 列举模型
-    "ai-inference:model:deploy",     // 部署模型
-    "ai-inference:model:undeploy",   // 卸载模型
-    "ai-inference:predict",          // 执行推理
-    "ai-inference:batch:submit",     // 提交批量任务
-    "ai-inference:metrics:view"      // 查看指标
-  ]
-}
-```
-
-**常用组合**:
-- 推理调用: `["ai-inference:predict"]`
-- 模型管理: `["ai-inference:model:*"]`
-- 完全控制: `["ai-inference:*"]`
-
-#### 5. 跨产品授权示例
-
-**多产品开发者**
-```json
-{
-  "description": "Multi-Product Developer Token",
-  "scope": [
-    "kodo:*",
-    "cdn:refresh",
-    "mikustream:stream:*"
-  ],
-  "expires_in_seconds": 2592000  // 30天
-}
-```
-
-**监控只读用户**
-```json
-{
-  "description": "Monitoring Read-Only Token",
-  "scope": [
-    "kodo:list",
-    "cdn:log:view",
-    "cdn:bandwidth:view",
-    "mikustream:record:list",
-    "ai-inference:metrics:view"
-  ],
-  "expires_in_seconds": 7776000  // 90天
-}
-```
-
-#### 6. 安全建议
-
-- ⚠️ **避免使用全局通配符 `*`**，除非确实需要管理员权限
-- ✅ **定期轮换 Token**，建议生产 Token 有效期不超过 90 天
-- ✅ **区分环境**，开发/测试/生产使用不同的 Token
-- ✅ **记录 Token 用途**，在 `description` 字段清楚描述用途
-- ✅ **监控 Token 使用**，通过审计日志发现异常访问
-
----
-
 ## 错误码参考
 
 ### HTTP 状态码
@@ -876,7 +538,6 @@ Bearer Token 使用 **Scope 权限系统**实现细粒度的访问控制。其�
 | 201 | 创建成功 | - |
 | 400 | 请求参数错误 | 检查请求体格式和参数 |
 | 401 | 认证失败 | 检查 QiniuStub 认证参数或 Bearer Token |
-| 403 | 权限不足 | 检查 Token 的 Scope 权限 |
 | 404 | 资源不存在 | 检查 Token ID 或资源 ID |
 | 500 | 服务器内部错误 | 联系管理员 |
 | 503 | 服务不可用 | 稍后重试 |
@@ -890,13 +551,6 @@ Bearer Token 使用 **Scope 权限系统**实现细粒度的访问控制。其�
 | 4004 | Invalid bearer token | Bearer Token 无效 |
 | 4005 | Token has expired | Token 已过期 |
 | 4006 | Token is disabled | Token 已被禁用 |
-
-**权限相关(4031-4099)**:
-
-| 错误码 | 消息 | 说明 |
-|--------|------|------|
-| 4031 | Permission denied | 权限不足 |
-| 4032 | Insufficient scope | Scope 权限不足 |
 
 **资源相关(4041-4099)**:
 
